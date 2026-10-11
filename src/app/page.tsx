@@ -7,13 +7,28 @@ import CategoryCards from '@/components/CategoryCards';
 import CourtGrid, { Court } from '@/components/CourtGrid';
 import BookingSuccessModal from '@/components/BookingSuccessModal';
 
+const INITIAL_COURTS: Court[] = [
+  { id: 1, name: 'คอร์ท 1', status: 'green' },
+  { id: 2, name: 'คอร์ท 2', status: 'green' },
+  { id: 3, name: 'คอร์ท 3', status: 'yellow' },
+  { id: 4, name: 'คอร์ท 4', status: 'red' },
+  { id: 5, name: 'คอร์ท 5', status: 'green' },
+  { id: 6, name: 'คอร์ท 6', status: 'green' },
+  { id: 7, name: 'คอร์ท 7', status: 'yellow' },
+  { id: 8, name: 'คอร์ท 8', status: 'green' },
+  { id: 9, name: 'คอร์ท 9', status: 'green' },
+  { id: 10, name: 'คอร์ท 10', status: 'green' },
+  { id: 11, name: 'คอร์ท 11', status: 'green' },
+  { id: 12, name: 'คอร์ท 12', status: 'green' },
+];
+
 export default function HomePage() {
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
 
   const [bookingHistory, setBookingHistory] = useState<any[]>([]);
   const [isMounted, setIsMounted] = useState(false);
 
-  // โหลด localStorage หลัง Component Mount บน Client เพื่อป้องกัน Hydration Mismatch
+  // 1. โหลดประวัติการจองจาก localStorage
   useEffect(() => {
     setIsMounted(true);
     const saved = localStorage.getItem('bookingHistory');
@@ -26,7 +41,7 @@ export default function HomePage() {
     }
   }, []);
 
-  // บันทึก localStorage เมื่อ bookingHistory เปลี่ยนแปลง
+  // 2. บันทึกประวัติการจองลง localStorage
   useEffect(() => {
     if (isMounted) {
       localStorage.setItem('bookingHistory', JSON.stringify(bookingHistory));
@@ -45,20 +60,7 @@ export default function HomePage() {
     duration: '1 ชั่วโมง',
   });
 
-  const [courts, setCourts] = useState<Court[]>([
-    { id: 1, name: 'คอร์ท 1', status: 'green' },
-    { id: 2, name: 'คอร์ท 2', status: 'green' },
-    { id: 3, name: 'คอร์ท 3', status: 'yellow' },
-    { id: 4, name: 'คอร์ท 4', status: 'red' },
-    { id: 5, name: 'คอร์ท 5', status: 'green' },
-    { id: 6, name: 'คอร์ท 6', status: 'green' },
-    { id: 7, name: 'คอร์ท 7', status: 'yellow' },
-    { id: 8, name: 'คอร์ท 8', status: 'green' },
-    { id: 9, name: 'คอร์ท 9', status: 'green' },
-    { id: 10, name: 'คอร์ท 10', status: 'green' },
-    { id: 11, name: 'คอร์ท 11', status: 'green' },
-    { id: 12, name: 'คอร์ท 12', status: 'green' },
-  ]);
+  const [courts, setCourts] = useState<Court[]>(INITIAL_COURTS);
 
   const [selectedCourts, setSelectedCourts] = useState<string[]>([]);
   const [userName, setUserName] = useState('');
@@ -72,12 +74,42 @@ export default function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [latestBooking, setLatestBooking] = useState<any>(null);
 
+  // 🔄 3. อัปเดตสถานะคอร์ทให้เป็นสีแดงอัตโนมัติ (พร้อมระบบแปลงชื่อคอร์ทกันความคลาดเคลื่อน)
+  useEffect(() => {
+    if (!isMounted) return;
+
+    // ดึงคอร์ททั้งหมดที่เคยถูกจองตรงกับ Date และ StartTime ปัจจุบัน
+    const rawBookedCourts = bookingHistory
+      .filter(
+        (b) => b.date === filter.date && b.startTime === filter.startTime
+      )
+      .flatMap((b) => b.selectedCourts || []);
+
+    // แปลงชื่อให้เป็นมาตรฐานเดียวกัน เช่น "สนาม 8" หรือ "คอร์ท 8" ให้เหลือแค่ตัวเลข "8"
+    const bookedNumbers = rawBookedCourts.map((c: string) =>
+      c.replace(/[^0-9]/g, '')
+    );
+
+    setCourts(
+      INITIAL_COURTS.map((court) => {
+        const courtNumber = court.name.replace(/[^0-9]/g, '');
+        // ถ้าเลขคอร์ทตรงกับที่มีในประวัติการจอง ให้ปรับสถานะเป็นสีแดง 'red'
+        if (bookedNumbers.includes(courtNumber)) {
+          return { ...court, status: 'red' };
+        }
+        return court;
+      })
+    );
+  }, [filter.date, filter.startTime, bookingHistory, isMounted]);
+
+  // ตั้งชื่อผู้จองอัตโนมัติเมื่อได้ Session จาก Google
   useEffect(() => {
     if (session?.user?.name && !userName) {
       setUserName(session.user.name);
     }
   }, [session, userName]);
 
+  // เมื่อล็อกอิน Google สำเร็จหากมีรายการค้างจองอยู่ ให้ยืนยันการจองต่อทันที
   useEffect(() => {
     if (session && pendingBookingConfirm) {
       processBooking();
@@ -85,7 +117,15 @@ export default function HomePage() {
     }
   }, [session, pendingBookingConfirm]);
 
+  // บังคับล็อกอินก่อนไปหน้าเลือกคอร์ท
   const handleSearch = () => {
+    if (!session) {
+      alert(
+        'กรุณาเข้าสู่ระบบด้วย Google ก่อนทำรายการจองสนาม เพื่อบันทึกประวัติการจองนำไปยื่นหน้าเคาน์เตอร์'
+      );
+      signIn('google');
+      return;
+    }
     setStep('court');
   };
 
@@ -106,6 +146,7 @@ export default function HomePage() {
     const newBooking = {
       id: Date.now(),
       userName: userName || session?.user?.name || 'ผู้ใช้งาน',
+      userEmail: session?.user?.email || 'ไม่ระบุอีเมล',
       userPhone,
       selectedCourts,
       date: filter.date,
@@ -115,14 +156,6 @@ export default function HomePage() {
       addons: addonsData,
       note,
     };
-
-    setCourts((prevCourts) =>
-      prevCourts.map((court) =>
-        selectedCourts.includes(court.name)
-          ? { ...court, status: 'red' }
-          : court
-      )
-    );
 
     setLatestBooking(newBooking);
     setBookingHistory((prev) => [newBooking, ...prev]);
@@ -136,6 +169,7 @@ export default function HomePage() {
     }
 
     if (!session) {
+      alert('กรุณาเข้าสู่ระบบด้วย Google ก่อนทำรายการจอง');
       setPendingBookingConfirm(true);
       signIn('google');
       return;
@@ -173,9 +207,14 @@ export default function HomePage() {
                   className="w-9 h-9 rounded-full border border-sky-400/50 shadow-md"
                 />
               )}
-              <span className="hidden sm:inline text-xs font-semibold text-slate-300">
-                {session.user?.name}
-              </span>
+              <div className="hidden sm:flex flex-col text-left">
+                <span className="text-xs font-bold text-slate-200">
+                  {session.user?.name}
+                </span>
+                <span className="text-[10px] text-sky-400">
+                  {session.user?.email}
+                </span>
+              </div>
 
               <button
                 type="button"
